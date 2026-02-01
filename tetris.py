@@ -11,6 +11,9 @@ PANEL_W = CELL * PANEL_COLS
 W = CELL * COLS + PANEL_W
 H = CELL * ROWS
 FPS = 60
+MINES_INITIAL = 6
+MINES_PER_5_LINES = 1
+MINE_COLOR = (120, 120, 120)
 
 # Tetromino shapes (4x4)
 SHAPES = {
@@ -96,11 +99,13 @@ def new_bag():
     return bag
 
 
-def collide(board, piece):
+def collide(board, piece, mines=None):
     for x, y in piece.blocks():
         if x < 0 or x >= COLS or y >= ROWS:
             return True
         if y >= 0 and board[y][x]:
+            return True
+        if mines and y >= 0 and (x, y) in mines:
             return True
     return False
 
@@ -112,14 +117,46 @@ def lock_piece(board, piece):
 
 
 def clear_lines(board):
-    new_board = [row for row in board if any(cell == "" for cell in row)]
+    kept_rows = []
+    cleared_rows = []
+    for idx, row in enumerate(board):
+        if all(cell != "" for cell in row):
+            cleared_rows.append(idx)
+        else:
+            kept_rows.append(row)
+    new_board = kept_rows
     cleared = ROWS - len(new_board)
     for _ in range(cleared):
         new_board.insert(0, [""] * COLS)
-    return new_board, cleared
+    return new_board, cleared, cleared_rows
 
 
-def draw_board(screen, board):
+def shift_mines_after_clear(mines, cleared_rows):
+    if not cleared_rows:
+        return mines
+    cleared_set = set(cleared_rows)
+    new_mines = set()
+    for x, y in mines:
+        if y in cleared_set:
+            continue
+        shift = sum(1 for r in cleared_rows if r < y)
+        new_mines.add((x, y - shift))
+    return new_mines
+
+
+def spawn_mines(mines, board, count):
+    empty = [
+        (x, y)
+        for y in range(2, ROWS)
+        for x in range(COLS)
+        if board[y][x] == "" and (x, y) not in mines
+    ]
+    random.shuffle(empty)
+    for pos in empty[:count]:
+        mines.add(pos)
+
+
+def draw_board(screen, board, mines):
     screen.fill(BG)
     for y in range(ROWS):
         for x in range(COLS):
@@ -128,6 +165,22 @@ def draw_board(screen, board):
             if board[y][x]:
                 color = COLORS[board[y][x]]
                 pygame.draw.rect(screen, color, rect.inflate(-2, -2))
+            elif (x, y) in mines:
+                pygame.draw.rect(screen, MINE_COLOR, rect.inflate(-4, -4))
+                pygame.draw.line(
+                    screen,
+                    (30, 30, 30),
+                    (rect.left + 6, rect.top + 6),
+                    (rect.right - 6, rect.bottom - 6),
+                    2,
+                )
+                pygame.draw.line(
+                    screen,
+                    (30, 30, 30),
+                    (rect.left + 6, rect.bottom - 6),
+                    (rect.right - 6, rect.top + 6),
+                    2,
+                )
 
 
 def draw_piece(screen, piece):
@@ -158,6 +211,8 @@ def main():
     font = pygame.font.SysFont("consolas", 18)
 
     board = [[""] * COLS for _ in range(ROWS)]
+    mines = set()
+    spawn_mines(mines, board, MINES_INITIAL)
     bag = new_bag()
     current = Piece(bag.pop())
     next_piece = Piece(bag.pop())
@@ -181,47 +236,56 @@ def main():
                     running = False
                 if event.key == pygame.K_LEFT:
                     current.x -= 1
-                    if collide(board, current):
+                    if collide(board, current, mines):
                         current.x += 1
                 if event.key == pygame.K_RIGHT:
                     current.x += 1
-                    if collide(board, current):
+                    if collide(board, current, mines):
                         current.x -= 1
                 if event.key == pygame.K_DOWN:
                     current.y += 1
-                    if collide(board, current):
+                    if collide(board, current, mines):
                         current.y -= 1
                 if event.key == pygame.K_UP:
                     rotated = rotate(current.shape)
                     old = current.shape
                     current.shape = rotated
-                    if collide(board, current):
+                    if collide(board, current, mines):
                         current.shape = old
                 if event.key == pygame.K_SPACE:
-                    while not collide(board, current):
+                    while not collide(board, current, mines):
                         current.y += 1
                     current.y -= 1
 
         if fall_timer >= drop_ms:
             fall_timer = 0
             current.y += 1
-            if collide(board, current):
+            if collide(board, current, mines):
                 current.y -= 1
-                lock_piece(board, current)
-                board, cleared = clear_lines(board)
+                # Mine hit destroys the current piece instead of locking it.
+                hit = [(x, y) for x, y in current.blocks() if (x, y + 1) in mines]
+                if hit:
+                    for x, y in hit:
+                        mines.discard((x, y + 1))
+                else:
+                    lock_piece(board, current)
+                board, cleared, cleared_rows = clear_lines(board)
+                mines = shift_mines_after_clear(mines, cleared_rows)
                 if cleared:
                     lines_total += cleared
                     score += [0, 40, 100, 300, 1200][cleared] * level
                     level = max(1, 1 + lines_total // 10)
                     drop_ms = max(100, 700 - (level - 1) * 50)
+                    if lines_total % 5 == 0:
+                        spawn_mines(mines, board, MINES_PER_5_LINES)
                 current = next_piece
                 if not bag:
                     bag = new_bag()
                 next_piece = Piece(bag.pop())
-                if collide(board, current):
+                if collide(board, current, mines):
                     running = False
 
-        draw_board(screen, board)
+        draw_board(screen, board, mines)
         draw_piece(screen, current)
 
         # UI
