@@ -6,7 +6,9 @@ import pygame
 CELL = 30
 COLS = 10
 ROWS = 20
-W = CELL * COLS
+PANEL_COLS = 6
+PANEL_W = CELL * PANEL_COLS
+W = CELL * COLS + PANEL_W
 H = CELL * ROWS
 FPS = 60
 
@@ -121,7 +123,7 @@ def draw_board(screen, board):
     screen.fill(BG)
     for y in range(ROWS):
         for x in range(COLS):
-            rect = pygame.Rect(x * CELL, y * CELL, CELL, CELL)
+            rect = pygame.Rect(PANEL_W + x * CELL, y * CELL, CELL, CELL)
             pygame.draw.rect(screen, GRID, rect, 1)
             if board[y][x]:
                 color = COLORS[board[y][x]]
@@ -131,8 +133,21 @@ def draw_board(screen, board):
 def draw_piece(screen, piece):
     for x, y in piece.blocks():
         if y >= 0:
-            rect = pygame.Rect(x * CELL, y * CELL, CELL, CELL)
+            rect = pygame.Rect(PANEL_W + x * CELL, y * CELL, CELL, CELL)
             pygame.draw.rect(screen, COLORS[piece.kind], rect.inflate(-2, -2))
+
+
+def draw_next(screen, piece, font):
+    label = font.render("Next", True, (220, 220, 220))
+    screen.blit(label, (10, 10))
+    # Center the 4x4 preview in the left panel
+    start_x = (PANEL_W - 4 * CELL) // 2
+    start_y = 40
+    for r in range(4):
+        for c in range(4):
+            if piece.shape[r][c] == "#":
+                rect = pygame.Rect(start_x + c * CELL, start_y + r * CELL, CELL, CELL)
+                pygame.draw.rect(screen, COLORS[piece.kind], rect.inflate(-2, -2))
 
 
 def main():
@@ -210,8 +225,11 @@ def main():
         draw_piece(screen, current)
 
         # UI
-        info = font.render(f"Score: {score}  Level: {level}", True, (220, 220, 220))
-        screen.blit(info, (6, 6))
+        draw_next(screen, next_piece, font)
+        info = font.render(f"Score: {score}", True, (220, 220, 220))
+        level_txt = font.render(f"Level: {level}", True, (220, 220, 220))
+        screen.blit(info, (10, 200))
+        screen.blit(level_txt, (10, 225))
         pygame.display.flip()
 
     pygame.quit()
